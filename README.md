@@ -1,6 +1,6 @@
 professional ML data factory
 
-This is a radar data generator script using python , it allows its user to generate data that would be very difficult to accuire under normal circumstances.
+This is a radar data generator script using python, it allows its user to generate data that would be very difficult to acquire under normal circumstances.
 
 used for model training and development then testing
 
