@@ -1,6 +1,8 @@
 # Quick test (2 minutes)
 python elite_data_generator.py --mode test
 
+python elite_data_generator.py --mode test --output_dir data/test_batch_1
+
 # Development dataset (20 minutes) 
 python elite_data_generator.py --mode dev --parallel
 
@@ -9,3 +11,5 @@ python elite_data_generator.py --mode production --parallel
 
 # Massive research dataset (8-12 hours)
 python elite_data_generator.py --mode massive --parallel
+
+
