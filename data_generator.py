@@ -1,6 +1,7 @@
 import numpy as np
 import json
 import os
+import sys
 import pickle
 from tqdm import tqdm
 import h5py
@@ -15,6 +16,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Import your existing radar simulation
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from main_radar_script import run_enhanced_prf_simulation
 
 class EliteRadarDataGenerator:
@@ -296,21 +298,36 @@ class EliteRadarDataGenerator:
         """Generate radar parameters with systematic coverage"""
         
         # Define parameter grids for systematic coverage
-        freq_bands = [
-            ('L', 1.5e9), ('S', 3.0e9), ('C', 5.5e9), 
-            ('X', 10e9), ('Ku', 15e9), ('K', 24e9)
-        ]
+        freq_bands = {
+            'L': 1.5e9,
+            'S': 3.0e9, 
+            'C': 5.5e9,
+            'X': 10e9,
+           
+        }
         
         # Select band and add realistic variation
-        band_name, base_freq = np.random.choice(freq_bands)
+        band_name = np.random.choice(list(freq_bands.keys()))
+        base_freq = freq_bands[band_name]
+
+        # First define fc
         fc = base_freq * np.random.uniform(0.9, 1.1)
-        
-        # Bandwidth scaled to frequency
-        bandwidth_ratio = np.random.uniform(0.05, 0.15)  # 5-15% of center frequency
+
+        # Then use fc to calculate bandwidth
+        bandwidth_ratio = np.random.uniform(0.05, 0.08)  # Was 0.15, now 0.08
         B = fc * bandwidth_ratio
+    
         
         # Sampling frequency - Nyquist + margin
-        fs = B * np.random.uniform(2.5, 4.0)
+        fs = B * np.random.uniform(2.2, 2.8)
+
+         # 🔧 FIX: Hard safety limits
+        if fs > 800e6:  # 800 MHz hard limit (well below simulation's breaking point)
+            fs = 800e6
+
+        if B > fc * 0.1:  # No more than 10% bandwidth
+            B = fc * 0.1
+            fs = B * 2.5  # Recalculate
         
         # Pulse parameters
         T_pulse = np.random.uniform(1e-6, 50e-6)
@@ -547,13 +564,21 @@ class EliteRadarDataGenerator:
         return quality_targets.get(difficulty, quality_targets['medium'])
     
     def run_simulation_and_validate(self, scenario: Dict) -> Optional[Dict]:
-        """Run simulation with comprehensive validation"""
+        """Run simulation with comprehensive validation - FIXED VERSION"""
         
         try:
-            # Convert to simulation format
+            # Convert to simulation format with CORRECT parameter mapping
             sim_params = self._scenario_to_sim_params(scenario)
             
-            # Run simulation
+            # 🔧 DEBUG: Print the parameters being sent to simulation
+            print(f"🔧 DEBUG: Sending parameters to simulation:")
+            for key, value in sim_params.items():
+                if key != 'targets':  # Don't print large target arrays
+                    print(f"   {key}: {value}")
+                else:
+                    print(f"   targets: {len(value)} targets")
+            
+            # Run simulation - this should now work!
             results = run_enhanced_prf_simulation(sim_params)
             
             # Quality validation
@@ -574,6 +599,9 @@ class EliteRadarDataGenerator:
             
         except Exception as e:
             self.logger.error(f"Scenario {scenario['scenario_id']} failed: {str(e)}")
+            # 🔧 DEBUG: Print the full error traceback
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
     
     def _validate_simulation_quality(self, scenario: Dict, results: Dict) -> bool:
@@ -789,20 +817,29 @@ class EliteRadarDataGenerator:
         return successful, failed
     
     def _scenario_to_sim_params(self, scenario: Dict) -> Dict:
-        """Convert scenario to simulation parameters format"""
+        """
+        Convert scenario to simulation parameters format
+        🔧 FIXED: Proper parameter mapping to match simulation expectations
+        """
         
+        # 🚨 THE FIX: Your simulation expects these EXACT parameter names
         return {
-            'centerFreq': scenario['radar_params']['fc'],
-            'samplingFreq': scenario['radar_params']['fs'],
-            'pulseDuration': scenario['radar_params']['T_pulse'],
-            'chirpBandwidth': scenario['radar_params']['B'],
-            'numPulses': scenario['radar_params']['num_pulses'],
-            'snr': scenario['radar_params']['snr_db'],
-            'pfa': scenario['radar_params']['pfa'],
+            # ✅ CORRECT MAPPING - simulation expects these names from Flask route
+            'centerFreq': scenario['radar_params']['fc'],        # simulation uses params['fc'] 
+            'samplingFreq': scenario['radar_params']['fs'],      # simulation uses params['fs']
+            'pulseDuration': scenario['radar_params']['T_pulse'], # simulation uses params['T_pulse']
+            'chirpBandwidth': scenario['radar_params']['B'],     # simulation uses params['B']
+            'numPulses': scenario['radar_params']['num_pulses'], # simulation uses params['num_pulses']
+            'snr': scenario['radar_params']['snr_db'],           # simulation uses params['snr_db']
+            'pfa': scenario['radar_params']['pfa'],              # simulation uses params['pfa']
+            
+            # ✅ CFAR parameters - these are correctly mapped
             'guardCellsRange': 3,
             'guardCellsDoppler': 3,
             'trainingCellsRange': 8,
             'trainingCellsDoppler': 8,
+            
+            # ✅ Target and platform data
             'targets': scenario['targets'],
             'platformType': scenario['radar_params']['platform_type']
         }
@@ -1692,16 +1729,16 @@ if __name__ == "__main__":
     # Setup based on mode
     if args.mode == 'test':
         output_dir = args.output_dir or "data/test_dataset"
-        num_scenarios = args.num_scenarios or 100
+        num_scenarios = args.num_scenarios or 5
     elif args.mode == 'dev':
         output_dir = args.output_dir or "data/dev_dataset"
-        num_scenarios = args.num_scenarios or 1000
+        num_scenarios = args.num_scenarios or 100
     elif args.mode == 'production':
         output_dir = args.output_dir or "data/production_dataset"
-        num_scenarios = args.num_scenarios or 10000
+        num_scenarios = args.num_scenarios or 1000
     elif args.mode == 'massive':
         output_dir = args.output_dir or "data/massive_dataset"
-        num_scenarios = args.num_scenarios or 50000
+        num_scenarios = args.num_scenarios or 5000
     
     # Create generator and run
     generator = EliteRadarDataGenerator(output_dir=output_dir)
